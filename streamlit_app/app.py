@@ -25,7 +25,6 @@ all_features = [
     'household_size'
 ]
 
-# Default values for numerical inputs
 default_values = {
     'post_harvest_loss_perc': 5,
     'distance_to_market_km': 0.5,
@@ -46,14 +45,12 @@ default_values = {
     'farming_experience_years': 1
 }
 
-# Safe transform for encoders
 def safe_transform(encoder, value):
     try:
         return encoder.transform([value])[0]
     except ValueError:
         return -1
 
-# Categorize credit score prediction
 def categorize_credit_score(score):
     if score < 564:
         return 'Poor'
@@ -62,7 +59,6 @@ def categorize_credit_score(score):
     else:
         return 'Good'
 
-# Get user input interactively
 def get_user_input():
     input_data = {}
 
@@ -85,13 +81,11 @@ def get_user_input():
     mobile_money_usage_options = ['Never', 'Rarely', 'Monthly', 'Weekly', 'Daily']
     input_data['mobile_money_usage_frequency'] = st.selectbox("Mobile Money Usage Frequency", mobile_money_usage_options)
 
-    # Transform categorical values with encoders
     input_data['education_category'] = safe_transform(education_encoder, input_data['education_category'])
     input_data['primary_crop'] = safe_transform(primary_crop_encoder, input_data['primary_crop'])
     input_data['creditworthiness_category'] = safe_transform(creditworthiness_encoder, input_data['creditworthiness_category'])
     input_data['mobile_money_usage_frequency'] = safe_transform(mobile_money_encoder, input_data['mobile_money_usage_frequency'])
 
-    # Binary features as checkboxes
     input_data['has_land_title'] = int(st.checkbox("Do you have a land title?", False))
     input_data['has_weather_insurance'] = int(st.checkbox("Do you have weather insurance?", False))
     input_data['smartphone_owner'] = int(st.checkbox("Do you own a smartphone?", True))
@@ -101,7 +95,6 @@ def get_user_input():
 
     input_data['gender'] = int(st.radio("Gender", ['Male', 'Female']) == 'Male')
 
-    # Numerical inputs with default values
     for feature in all_features:
         if feature in input_data or feature in ['education_category', 'primary_crop', 'creditworthiness_category', 'gender']:
             continue
@@ -110,14 +103,18 @@ def get_user_input():
 
     return pd.DataFrame([input_data])
 
-# Streamlit app UI
 st.title("🌿 Farm Success Predictor")
 st.write("Predict farm credit score and creditworthiness category based on farm and demographic data.")
+
+doc_link = "https://docs.google.com/document/d/1f952T8SshQjFEVpDRrHSrurXQNAdqoJsnUpFOF7Bf38/edit?usp=sharing"
 
 input_mode = st.sidebar.radio("Choose Input Mode", ["Manual Input", "Upload CSV"])
 
 if input_mode == "Manual Input":
+    st.sidebar.markdown(f"📖 See [Feature Description Guide]({doc_link}) for details on each feature.")
+    st.markdown(f"### Please refer to the [Feature Description Guide]({doc_link}) to understand each input field.")
     input_df = get_user_input()
+
     trained_features = regression_model.get_booster().feature_names
     input_features = input_df.columns.tolist()
 
@@ -138,7 +135,15 @@ if input_mode == "Manual Input":
             st.info(f"📊 Creditworthiness Category: **{category}**")
 
 else:
-    uploaded_file = st.file_uploader("Upload CSV file with all required columns (except credit score)", type=["csv"])
+    st.sidebar.markdown(f"📖 See [Feature Description Guide]({doc_link}) for details on the required CSV columns.")
+    st.info(f"""
+    📌 Please upload a CSV file containing all the required features for prediction.
+
+    For detailed information on each feature and the expected format, please refer to the
+    [Feature Description Guide]({doc_link}).
+    """)
+
+    uploaded_file = st.file_uploader("📤 Upload your preprocessed CSV file", type=["csv"])
     if uploaded_file is not None:
         data_csv = pd.read_csv(uploaded_file)
         st.write("📄 Preview of uploaded data:", data_csv.head())
@@ -148,7 +153,7 @@ else:
         missing_cols = required_cols - uploaded_cols
 
         if missing_cols:
-            st.error(f"Missing columns in CSV: {missing_cols}")
+            st.error(f"❌ Missing columns in CSV: {missing_cols}")
         else:
             if st.button("Predict Batch"):
                 predictions = regression_model.predict(data_csv)
@@ -160,6 +165,3 @@ else:
                 output_df['Creditworthiness_Category'] = categories
 
                 st.write("📊 Batch Predictions Preview:", output_df.head())
-
-                csv = output_df.to_csv(index=False).encode('utf-8')
-                st.download_button("⬇️ Download Predictions as CSV", data=csv, file_name="credit_score_predictions.csv", mime='text/csv')
