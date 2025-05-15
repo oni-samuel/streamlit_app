@@ -1,15 +1,20 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import os
 
-# Load model and encoders
-regression_model = joblib.load("xgboost_credit_score_model.pkl")
-education_encoder = joblib.load("education_category_encoder.pkl")
-primary_crop_encoder = joblib.load("primary_crop_encoder.pkl")
-mobile_money_encoder = joblib.load("mobile_money_usage_frequency_encoder.pkl")
-creditworthiness_encoder = joblib.load("creditworthiness_category_encoder.pkl")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Features
+# Load the model and encoders
+model_path = os.path.join(BASE_DIR, "xgboost_credit_score_model.pkl")
+regression_model = joblib.load(model_path)
+
+education_encoder = joblib.load(os.path.join(BASE_DIR, "education_category_encoder.pkl"))
+primary_crop_encoder = joblib.load(os.path.join(BASE_DIR, "primary_crop_encoder.pkl"))
+mobile_money_encoder = joblib.load(os.path.join(BASE_DIR, "mobile_money_usage_frequency_encoder.pkl"))
+creditworthiness_encoder = joblib.load(os.path.join(BASE_DIR, "creditworthiness_category_encoder.pkl"))
+
+# Features expected by the model
 all_features = [
     'monthly_mobile_spend_naira', 'post_harvest_loss_perc', 'distance_to_market_km', 'distance_to_bank_km',
     'percentage_sold_unprocessed', 'percentage_consumed', 'income_per_capita_ngn', 'annual_farm_revenue_ngn',
@@ -20,9 +25,9 @@ all_features = [
     'household_size'
 ]
 
-# Default values
+# Default values for numerical inputs
 default_values = {
-    'post_harvest_loss_percentage': 5,
+    'post_harvest_loss_perc': 5,
     'distance_to_market_km': 0.5,
     'distance_to_bank_km': 1,
     'percentage_sold_unprocessed': 0,
@@ -41,14 +46,14 @@ default_values = {
     'farming_experience_years': 1
 }
 
-# Safe encoder transformation
+# Safe transform for encoders
 def safe_transform(encoder, value):
     try:
         return encoder.transform([value])[0]
     except ValueError:
         return -1
 
-# Categorize credit score
+# Categorize credit score prediction
 def categorize_credit_score(score):
     if score < 564:
         return 'Poor'
@@ -57,7 +62,7 @@ def categorize_credit_score(score):
     else:
         return 'Good'
 
-# Get user input
+# Get user input interactively
 def get_user_input():
     input_data = {}
 
@@ -80,11 +85,13 @@ def get_user_input():
     mobile_money_usage_options = ['Never', 'Rarely', 'Monthly', 'Weekly', 'Daily']
     input_data['mobile_money_usage_frequency'] = st.selectbox("Mobile Money Usage Frequency", mobile_money_usage_options)
 
+    # Transform categorical values with encoders
     input_data['education_category'] = safe_transform(education_encoder, input_data['education_category'])
     input_data['primary_crop'] = safe_transform(primary_crop_encoder, input_data['primary_crop'])
     input_data['creditworthiness_category'] = safe_transform(creditworthiness_encoder, input_data['creditworthiness_category'])
     input_data['mobile_money_usage_frequency'] = safe_transform(mobile_money_encoder, input_data['mobile_money_usage_frequency'])
 
+    # Binary features as checkboxes
     input_data['has_land_title'] = int(st.checkbox("Do you have a land title?", False))
     input_data['has_weather_insurance'] = int(st.checkbox("Do you have weather insurance?", False))
     input_data['smartphone_owner'] = int(st.checkbox("Do you own a smartphone?", True))
@@ -94,6 +101,7 @@ def get_user_input():
 
     input_data['gender'] = int(st.radio("Gender", ['Male', 'Female']) == 'Male')
 
+    # Numerical inputs with default values
     for feature in all_features:
         if feature in input_data or feature in ['education_category', 'primary_crop', 'creditworthiness_category', 'gender']:
             continue
@@ -102,9 +110,9 @@ def get_user_input():
 
     return pd.DataFrame([input_data])
 
-# Streamlit app
+# Streamlit app UI
 st.title("🌿 Farm Success Predictor")
-st.write("Predict farm revenue and credit score category based on farm and demographic data.")
+st.write("Predict farm credit score and creditworthiness category based on farm and demographic data.")
 
 input_mode = st.sidebar.radio("Choose Input Mode", ["Manual Input", "Upload CSV"])
 
@@ -117,8 +125,8 @@ if input_mode == "Manual Input":
     extra_features = set(input_features) - set(trained_features)
 
     if missing_features or extra_features:
-        st.write(f"Missing Features: {missing_features}")
-        st.write(f"Extra Features: {extra_features}")
+        st.error(f"Missing Features: {missing_features}")
+        st.error(f"Extra Features: {extra_features}")
     else:
         input_df = input_df[trained_features]
         if st.button("Predict"):
@@ -130,20 +138,28 @@ if input_mode == "Manual Input":
             st.info(f"📊 Creditworthiness Category: **{category}**")
 
 else:
-    uploaded_file = st.file_uploader("Upload CSV file with all required columns (without credit_score)", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV file with all required columns (except credit score)", type=["csv"])
     if uploaded_file is not None:
         data_csv = pd.read_csv(uploaded_file)
         st.write("📄 Preview of uploaded data:", data_csv.head())
-        if st.button("Predict Batch"):
-            predictions = regression_model.predict(data_csv)
-            predictions_rounded = [round(p) for p in predictions]
-            categories = [categorize_credit_score(p) for p in predictions_rounded]
 
-            output_df = data_csv.copy()
-            output_df['Predicted_Credit_Score'] = predictions_rounded
-            output_df['Creditworthiness_Category'] = categories
+        required_cols = set(regression_model.get_booster().feature_names)
+        uploaded_cols = set(data_csv.columns)
+        missing_cols = required_cols - uploaded_cols
 
-            st.write("📊 Batch Predictions Preview:", output_df.head())
+        if missing_cols:
+            st.error(f"Missing columns in CSV: {missing_cols}")
+        else:
+            if st.button("Predict Batch"):
+                predictions = regression_model.predict(data_csv)
+                predictions_rounded = [round(p) for p in predictions]
+                categories = [categorize_credit_score(p) for p in predictions_rounded]
 
-            csv = output_df.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download Predictions as CSV", data=csv, file_name="credit_score_predictions.csv", mime='text/csv')
+                output_df = data_csv.copy()
+                output_df['Predicted_Credit_Score'] = predictions_rounded
+                output_df['Creditworthiness_Category'] = categories
+
+                st.write("📊 Batch Predictions Preview:", output_df.head())
+
+                csv = output_df.to_csv(index=False).encode('utf-8')
+                st.download_button("⬇️ Download Predictions as CSV", data=csv, file_name="credit_score_predictions.csv", mime='text/csv')
